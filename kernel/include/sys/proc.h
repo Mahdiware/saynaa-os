@@ -27,6 +27,8 @@ typedef struct _proc_t {
     uint32_t mem_len; // Size of program heap in bytes
     uint32_t sleep_ticks;
     uint8_t fpu_registers[512];
+    uint32_t parent_pid; // PID of creator (0 for kernel/root)
+    char cwd[256];
 } process_t;
 
 /* This structure defines the interface of schedulers in SnowflakeOS.
@@ -46,10 +48,13 @@ typedef struct _sched_t {
      * right after.
      */
     void (*sched_exit)(struct _sched_t*, process_t*);
+    /* Returns true if a pid exists in the run queue */
+    bool (*sched_exists)(struct _sched_t*, uint32_t pid);
 } sched_t;
 
 void init_proc();
 process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv);
+process_t* proc_run_path(const char* path, char** argv);
 void proc_print_processes();
 void proc_schedule();
 void proc_exit();

@@ -4,6 +4,7 @@
 #include "kernel/cpu/gdt.h"
 #include "kernel/cpu/timer.h"
 #include "kernel/cpu/tss.h"
+#include "kernel/fs/vfs.h"
 #include "kernel/kernel.h"
 #include "kernel/lib/kprintf.h"
 #include "kernel/mem/malloc.h"
@@ -38,13 +39,16 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
         temp_page = (uintptr_t) kamalloc(0x1000, 0x1000);
     }
 
-    // Save arguments before switching directory and losing them
+    // Save arguments before switching directory and losing them (preserve order)
     list_t args = LIST_HEAD_INIT(args);
-
     while (argv && *argv) {
-        char* buff = (char*) kmalloc((strlen(*argv) + 1) * sizeof(char));
-
-        list_add_front(&args, (void*) strcpy(buff, *argv));
+        size_t len = strlen(*argv) + 1;
+        char* buff = (char*) kmalloc(len);
+        if (!buff) {
+            break;
+        }
+        strcpy(buff, *argv);
+        list_add(&args, buff);
         argv++;
     }
 
@@ -86,41 +90,46 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
 
     /* Setup the (argc, argv) part of the userstack, start by copying the given
      * arguments on that stack. */
-    list_t arglist = LIST_HEAD_INIT(arglist);
     char* ustack_char = (char*) (0xC0000000 - 1);
 
-    char* arg;
-    list_for_each_entry(arg, &args) {
-        uint32_t len = strlen(arg);
-
-        // We need (ustack_char - len) to be 4-bytes aligned
-        ustack_char -= ((uintptr_t) ustack_char - len) % 4;
-        char* dest = ustack_char - len;
-
-        strncpy(dest, arg, len);
-        ustack_char -= len + 1; // Keep pointing to a free byte
-
-        list_add(&arglist, (void*) dest);
-        kfree(arg);
-    }
-
-    /* Write `argv` to the stack with the pointers created previously.
-     * Note that we switch to an int pointer; we're writing addresses here. */
-    uint32_t* ustack_int = (uint32_t*) ((uintptr_t) ustack_char & ~0x3);
+    char* argv_user[64];
     uint32_t arg_count = 0;
-
-    list_for_each_entry(arg, &arglist) {
-        *(ustack_int--) = (uintptr_t) arg;
-        arg_count++;
+    list_t* iter;
+    list_t* n;
+    list_for_each_safe(iter, n, &args) {
+        char* arg = (char*) iter->data;
+        if (arg_count >= 64) {
+            kfree(arg);
+            list_del(iter);
+            continue;
+        }
+        uint32_t len = (uint32_t) strlen(arg) + 1;
+        uintptr_t next = (uintptr_t) ustack_char - len;
+        next &= ~0x3; // 4-byte align
+        ustack_char = (char*) next;
+        strncpy(ustack_char, arg, len);
+        argv_user[arg_count++] = ustack_char;
+        kfree(arg);
+        list_del(iter);
     }
 
-    // Push program arguments
-    uintptr_t argsptr = (uintptr_t) (ustack_int + 1);
-    *(ustack_int--) = arg_count ? argsptr : (uintptr_t) NULL;
-    *(ustack_int--) = arg_count;
+    uint32_t* ustack_int = (uint32_t*) ((uintptr_t) ustack_char & ~0x3);
+
+    *(--ustack_int) = 0; // argv[argc] = NULL
+    for (int i = (int) arg_count - 1; i >= 0; i--) {
+        *(--ustack_int) = (uint32_t) argv_user[i];
+    }
+
+    uint32_t* argv_base = ustack_int;
+    *(--ustack_int) = (uint32_t) argv_base; // argv
+    *(--ustack_int) = arg_count;            // argc
 
     // Switch to the original page directory
     paging_switch_directory(previous_pd);
+
+    uint32_t parent = current_process ? current_process->pid : 0;
+
+    const char* parent_cwd = (current_process && current_process->cwd[0]) ? current_process->cwd : "/";
 
     *process = (process_t) {.pid = next_pid++,
         .code_len = num_code_pages,
@@ -129,7 +138,11 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
         .kernel_stack = kernel_stack + PROC_KERNEL_STACK_PAGES * 0x1000 - 4,
         .saved_kernel_stack = kernel_stack + PROC_KERNEL_STACK_PAGES * 0x1000 - 4,
         .initial_user_stack = (uintptr_t) ustack_int,
-        .sleep_ticks = 0};
+        .sleep_ticks = 0,
+        .parent_pid = parent};
+
+    strncpy(process->cwd, parent_cwd, sizeof(process->cwd) - 1);
+    process->cwd[sizeof(process->cwd) - 1] = '\0';
 
     // We use this label as the return address from `proc_switch_process`
     uint32_t* jmp = &irq_handler_end;
@@ -185,11 +198,47 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
     return process;
 }
 
+process_t* proc_run_path(const char* path, char** argv) {
+    vfs_node_t* node = vfs_lookup(path);
+    if (!node) {
+        kprintf_error("proc: cannot find %s", path);
+        return NULL;
+    }
+
+    uint32_t size = node->length;
+    if (!size) {
+        kprintf_error("proc: %s has zero length", path);
+        return NULL;
+    }
+
+    uint8_t* buf = kmalloc(size);
+    if (!buf) {
+        kprintf_error("proc: no memory to load %s", path);
+        return NULL;
+    }
+
+    ssize_t n = vfs_read(node, 0, size, buf);
+    if (n < 0 || (uint32_t) n != size) {
+        kprintf_error("proc: failed to read %s", path);
+        kfree(buf);
+        return NULL;
+    }
+
+    process_t* p = proc_run_code(buf, size, argv);
+    kfree(buf);
+    return p;
+}
+
 /* Runs the scheduler. The scheduler may then decide to elect a new process, or
  * not.
  */
 void proc_schedule() {
     process_t* next = scheduler->sched_next(scheduler);
+
+    if (!next) {
+        current_process = NULL;
+        return;
+    }
 
     if (next == current_process) {
         return;
@@ -244,27 +293,18 @@ void proc_enter_usermode() {
  * Implements the `exit` system call.
  */
 void proc_exit() {
-    // Free allocated pages: code, heap, stack, page directory
-    directory_entry_t* pd = (directory_entry_t*) 0xFFFFF000;
+    process_t* exiting = current_process;
 
-    for (uint32_t i = 0; i < 768; i++) {
-        if (!(pd[i] & PAGE_PRESENT)) {
-            continue;
-        }
+    scheduler->sched_exit(scheduler, exiting);
 
-        uintptr_t page = pd[i] & PAGE_FRAME;
-        pmm_free_page(page);
-    }
-
-    uintptr_t pd_page = pd[1023] & PAGE_FRAME;
-    pmm_free_page(pd_page);
-
-    // Free the kernel stack
-    kfree((void*) (current_process->kernel_stack - 0x1000 * PROC_KERNEL_STACK_PAGES + 4));
-
-    // This last line is actually safe, and necessary
-    scheduler->sched_exit(scheduler, current_process);
+    // Pick next process; returns to caller if no switch needed
     proc_schedule();
+
+    // If no process was runnable, halt.
+    if (!current_process) {
+        kprintf_error("no runnable process after exit");
+        infinite_loop();
+    }
 }
 
 uint32_t proc_get_current_pid() {

@@ -22,6 +22,10 @@ int strncmp(const char* s1, const char* s2, size_t n);
 // Returns pointer to found char or NULL if not found
 char* strrchr(const char* s, int c);
 
+// Finds the first occurrence of character 'c' in string 's'
+// Returns pointer to found char or NULL if not found
+char* strchr(const char* s, int c);
+
 // Returns the length of 'string' up to 'max_len'
 size_t strnlen(const char* string, size_t max_len);
 
@@ -30,3 +34,6 @@ int strcpy(char* dest, const char* src);
 
 // Copies up to 'n' characters from 'src' to 'dest'
 char* strncpy(char* dest, const char* src, size_t n);
+
+// Appends src to dest
+char* strcat(char* dest, const char* src);

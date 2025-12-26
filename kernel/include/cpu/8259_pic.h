@@ -1,5 +1,6 @@
 #pragma once
 
+#include "kernel/cpu/ports.h"
 #include "libc/stdint.h"
 
 /* For more details, see https://wiki.osdev.org/8259_PIC */
@@ -32,3 +33,9 @@ void pic8259_init();
  * This function signals to the PIC that the interrupt has been handled.
  */
 void pic8259_eoi(uint8_t irq);
+
+// Mask register helpers (optional future use)
+static inline void pic8259_set_mask(uint8_t master_mask, uint8_t slave_mask) {
+    outportb(PIC1_DATA, master_mask);
+    outportb(PIC2_DATA, slave_mask);
+}

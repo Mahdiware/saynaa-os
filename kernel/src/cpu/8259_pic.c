@@ -26,9 +26,10 @@ void pic8259_init() {
     outportb(PIC1_DATA, ICW4_8086);
     outportb(PIC2_DATA, ICW4_8086);
 
-    // Restore the original mask registers to their previous state
-    outportb(PIC1_DATA, a1);
-    outportb(PIC2_DATA, a2);
+    // Unmask timer (IRQ0) and keyboard (IRQ1) by default; keep others masked
+    // Slave PIC fully masked for now
+    outportb(PIC1_DATA, 0xFC); // 11111100b
+    outportb(PIC2_DATA, 0xFF);
 }
 
 void pic8259_eoi(uint8_t irq) {

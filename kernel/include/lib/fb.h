@@ -14,6 +14,8 @@ typedef struct {
 void init_fb(mb2_t* boot);
 fb_t get_fb();
 
+extern fb_t fb;
+
 typedef struct argb {
     uint8_t a, r, g, b;
 } argb_t __attribute__((packed));

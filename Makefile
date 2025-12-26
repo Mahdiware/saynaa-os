@@ -18,6 +18,7 @@ OBJ_DIR    := $(BUILD)/obj/
 MAKE       := $(MAKE) -s
 ISODIR     := $(PWD)/isodir
 KERNEL     := $(ISODIR)/boot/$(NAME).bin
+IMAGE      := $(ISODIR)/modules/disk.img
 
 PROJECTS   := kernel libraries userspace
 PROJ_SETUP := $(PROJECTS:=.setup)

@@ -45,9 +45,32 @@ void sched_robin_add(sched_t* sched, process_t* new_process) {
     }
 }
 
+static bool sched_robin_exists(sched_t* sched, uint32_t pid) {
+    sched_robin_t* sc = (sched_robin_t*) sched;
+    proc_node_t* p = sc->processes;
+
+    if (!p) {
+        return false;
+    }
+
+    proc_node_t* start = p;
+    do {
+        if (p->process && p->process->pid == pid) {
+            return true;
+        }
+        p = p->next;
+    } while (p && p != start);
+
+    return false;
+}
+
 process_t* sched_robin_next(sched_t* sched) {
     sched_robin_t* sc = (sched_robin_t*) sched;
     proc_node_t* p = sc->processes;
+
+    if (!p) {
+        return NULL;
+    }
 
     // Avoid switching to a sleeping process if possible
     do {
@@ -89,9 +112,14 @@ void sched_robin_exit(sched_t* sched, process_t* process) {
     sched_robin_t* sc = (sched_robin_t*) sched;
     proc_node_t* p = sc->processes;
 
+    if (!p) {
+        return;
+    }
+
     if (sc->processes == sc->processes->next) {
-        kprintf_error("exiting from the last process");
-        abort();
+        kfree(sc->processes);
+        sc->processes = NULL;
+        return;
     }
 
     while (p->next->process != process) {
@@ -114,7 +142,8 @@ sched_t* sched_robin() {
     sched->sched = (sched_t) {.sched_get_current = sched_robin_get_current,
         .sched_add = sched_robin_add,
         .sched_next = sched_robin_next,
-        .sched_exit = sched_robin_exit};
+        .sched_exit = sched_robin_exit,
+        .sched_exists = sched_robin_exists};
 
     sched->processes = NULL;
 
