@@ -10,6 +10,7 @@
 #include "kernel/mem/malloc.h"
 #include "kernel/mem/paging.h"
 #include "kernel/mem/pmm.h"
+#include "kernel/sys/elf.h"
 #include "kernel/sys/sched_robin.h"
 #include "kernel/utils/debug.h"
 #include "libc/math.h"
@@ -52,7 +53,7 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
         argv++;
     }
 
-    // TODO: this assumes .bss sections are marked as progbits
+    // Flat binaries: treat trailing space up to page boundary as zeroed "bss"
     uint32_t num_code_pages = divide_up(size, 0x1000);
     uint32_t num_stack_pages = PROC_STACK_PAGES;
 
@@ -76,13 +77,21 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
     uintptr_t previous_pd = *paging_get_page(0xFFFFF000, false, 0) & PAGE_FRAME;
     paging_switch_directory(pd_phys);
 
-    // Map the code and copy it to physical pages, zero out the excess memory
-    // for static variables
-    // TODO: don't require contiguous pages
-    uintptr_t code_phys = pmm_alloc_pages(num_code_pages);
-    paging_map_pages(0x00001000, code_phys, num_code_pages, PAGE_USER | PAGE_RW);
-    memcpy((void*) 0x00001000, (void*) code, size);
-    memset((uint8_t*) 0x1000 + size, 0, num_code_pages * 0x1000 - size);
+    uintptr_t entry_point = 0x00001000;
+
+    if (elf_is_valid(code, size)) {
+        if (elf_load(code, size, &entry_point) != 0) {
+            kprintf_error("proc: invalid elf");
+            paging_switch_directory(previous_pd);
+            return NULL;
+        }
+    } else {
+        // Map the code and copy it to physical pages, zero out the excess
+        uintptr_t code_phys = pmm_alloc_pages(num_code_pages);
+        paging_map_pages(0x00001000, code_phys, num_code_pages, PAGE_USER | PAGE_RW);
+        memcpy((void*) 0x00001000, (void*) code, size);
+        memset((uint8_t*) 0x1000 + size, 0, num_code_pages * 0x1000 - size);
+    }
 
     // Map the stack
     uintptr_t stack_phys = pmm_alloc_pages(num_stack_pages);
@@ -159,10 +168,10 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
         // Stuff popped by `iret`
         "push $0x23\n" // user ds selector
         "mov %[ustack], %%eax\n"
-        "push %%eax\n"       // %esp
-        "push $0x202\n"      // %eflags with `IF` bit set
-        "push $0x1B\n"       // user cs selector
-        "push $0x00001000\n" // %eip
+        "push %%eax\n"    // %esp
+        "push $0x202\n"   // %eflags with `IF` bit set
+        "push $0x1B\n"    // user cs selector
+        "push %[entry]\n" // %eip
         // Push error code, interrupt number
         "sub $8, %%esp\n"
         // `pusha` equivalent
@@ -190,7 +199,7 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
         // Update the new process's %esp
         "mov %%eax, %[esp]\n"
         : [esp] "=r"(process->saved_kernel_stack)
-        : [kstack] "r"(process->kernel_stack), [ustack] "r"(process->initial_user_stack), [jmp] "r"(jmp)
+        : [kstack] "r"(process->kernel_stack), [ustack] "r"(process->initial_user_stack), [jmp] "r"(jmp), [entry] "r"(entry_point)
         : "%eax", "%ebx");
 
     scheduler->sched_add(scheduler, process);

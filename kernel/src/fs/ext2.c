@@ -2,8 +2,8 @@
 
 #include "kernel/fs/devfs.h"
 #include "kernel/kernel.h"
-#include "kernel/lib/kprintf.h"
 #include "kernel/mem/malloc.h"
+#include "kernel/utils/debug.h"
 #include "libc/string.h"
 
 #include <stdbool.h>
@@ -125,10 +125,19 @@ static ssize_t ext2_read_file(ext2_fs_t* fs, ext2_inode_t* inode, uint32_t offse
     while (copied < size) {
         uint32_t blk = ext2_get_data_block(fs, inode, block_index);
         if (!blk) {
-            break;
+            uint32_t chunk = block_size - block_offset;
+            if (chunk > size - copied) {
+                chunk = size - copied;
+            }
+            memset(buffer + copied, 0, chunk);
+            copied += chunk;
+            block_index++;
+            block_offset = 0;
+            continue;
         }
         uint8_t* blk_ptr = ext2_block_ptr(fs, blk);
         if (!blk_ptr) {
+            kprintf_error("ext2: bad block ptr %u", blk);
             break;
         }
 

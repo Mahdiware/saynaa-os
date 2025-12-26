@@ -1,20 +1,25 @@
 ENTRY(_start)
-OUTPUT_FORMAT(binary)
+OUTPUT_FORMAT(elf32-i386)
+
+PHDRS {
+	text PT_LOAD FLAGS(5); /* R+X */
+	data PT_LOAD FLAGS(6); /* R+W */
+}
 
 SECTIONS {
-	. = 0x1000;
+	. = 0x001000;
 
-	.text ALIGN(4): {
+	.text : {
 		build/init.o(.text)
 		*(.text*)
-	}
+	} :text
 
-	.data ALIGN(4): {
+	.rodata : {
+		*(.rodata*)
+	} :text
+
+	.data ALIGN(0x1000) : {
 		*(.data)
 		*(.bss*)
-	}
-
-	.rodata ALIGN(4): {
-		*(.rodata*)
-	}
+	} :data
 }
