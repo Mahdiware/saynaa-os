@@ -6,7 +6,10 @@
 int main(int argc, char** argv) {
     const char* arg = argc > 1 ? argv[1] : NULL;
     char cwd[256];
-    strcpy(cwd, "/");
+    if (sys_getcwd(cwd, sizeof(cwd)) < 0) {
+        puts("pwd: failed");
+        return 1;
+    }
 
     char path[256];
     if (!arg || arg[0] == '\0') {

@@ -7,6 +7,10 @@
 #include "kernel/cpu/serial.h"
 #include "kernel/cpu/timer.h"
 #include "kernel/drivers/keyboard.h"
+#include "kernel/fs/dev/dev_console.h"
+#include "kernel/fs/dev/dev_null.h"
+#include "kernel/fs/dev/dev_tty.h"
+#include "kernel/fs/dev/dev_zero.h"
 #include "kernel/fs/ext2.h"
 #include "kernel/fs/vfs.h"
 #include "kernel/lib/fb.h"
@@ -39,6 +43,10 @@ void kernel_main(mb2_t* boot, uint32_t magic) {
     init_fb(boot);
     set_text_color(vga_to_color(15), vga_to_color(0));
     init_keyboard();
+    init_dev_null();
+    init_dev_zero();
+    init_dev_tty();
+    init_dev_console();
 
     init_proc();
     init_syscall();

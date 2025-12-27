@@ -1,10 +1,16 @@
 #include "kernel/drivers/keyboard.h"
 
 #include "kernel/cpu/ports.h"
+#include "kernel/fs/device.h"
+#include "kernel/kernel.h"
+#include "libc/string.h"
 
 static bool g_caps_lock = false;
 static bool g_shift_pressed = false;
 volatile char g_ch = 0, g_scan_code = 0;
+
+static device_t g_keyboard_device;
+static ssize_t keyboard_device_read(device_t* dev, uint32_t offset, uint32_t size, uint8_t* buffer);
 
 void keyboard_handler(REGISTERS* r);
 
@@ -17,6 +23,12 @@ char g_scan_code_chars[128] = {0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9
 
 void init_keyboard() {
     isr_register_handler(IRQ_BASE + 1, keyboard_handler);
+
+    memset(&g_keyboard_device, 0, sizeof(g_keyboard_device));
+    strncpy(g_keyboard_device.name, "kbd", DEVICE_NAME_MAX - 1);
+    g_keyboard_device.type = DEVICE_TYPE_CHAR;
+    g_keyboard_device.read = keyboard_device_read;
+    device_register(&g_keyboard_device);
 }
 
 static int get_scancode() {
@@ -139,6 +151,21 @@ void keyboard_handler(REGISTERS* r) {
             break;
         }
     }
+}
+
+static ssize_t keyboard_device_read(device_t* dev, uint32_t offset, uint32_t size, uint8_t* buffer) {
+    unused(dev);
+    unused(offset);
+    if (!buffer || size == 0) {
+        return -1;
+    }
+
+    uint32_t read = 0;
+    enable_interrupts();
+    while (read < size) {
+        buffer[read++] = (uint8_t) kb_getchar();
+    }
+    return (ssize_t) read;
 }
 
 // a blocking character read

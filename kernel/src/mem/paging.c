@@ -76,6 +76,7 @@ page_t* paging_get_page(uintptr_t virt, bool create, uint32_t flags) {
     if (!(dir[dir_index] & PAGE_PRESENT) && create) {
         page_t* new_table = (page_t*) pmm_alloc_page();
         dir[dir_index] = (uint32_t) new_table | PAGE_PRESENT | PAGE_RW | (flags & PAGE_FLAGS);
+        asm volatile("invlpg (%0)" : : "b"(table) : "memory");
         memset((void*) table, 0, 4096);
     }
 

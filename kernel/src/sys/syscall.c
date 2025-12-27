@@ -2,7 +2,7 @@
 
 #include "kernel/cpu/isr.h"
 #include "kernel/cpu/timer.h"
-#include "kernel/drivers/keyboard.h"
+#include "kernel/fs/dev/dev_tty.h"
 #include "kernel/fs/vfs.h"
 #include "kernel/kernel.h"
 #include "kernel/lib/kprintf.h"
@@ -68,20 +68,20 @@ static void syscall_exit(REGISTERS* regs) {
 }
 
 static void syscall_putchar(REGISTERS* regs) {
-    vbe_print_char((char) regs->ebx);
+    uint8_t ch = (uint8_t) regs->ebx;
+    ttydev_write_active(0, 1, &ch);
 }
 
 static void syscall_write(REGISTERS* regs) {
-    const char* buf = (const char*) regs->ebx;
+    const uint8_t* buf = (const uint8_t*) regs->ebx;
     uint32_t len = regs->ecx;
+
     if (!buf || len == 0) {
         regs->eax = -1;
         return;
     }
-    for (uint32_t i = 0; i < len; i++) {
-        vbe_print_char(buf[i]);
-    }
-    regs->eax = (int32_t) len;
+
+    regs->eax = (int32_t) ttydev_write_active(0, len, buf);
 }
 
 static int resolve_user_path(const char* path, char* out, size_t out_len) {
@@ -191,8 +191,13 @@ static void syscall_stat(REGISTERS* regs) {
 }
 
 static void syscall_getchar(REGISTERS* regs) {
-    enable_interrupts();
-    regs->eax = (int32_t) kb_getchar();
+    uint8_t ch = 0;
+    ssize_t r = ttydev_read_active(0, 1, &ch);
+    if (r == 1) {
+        regs->eax = (int32_t) ch;
+    } else {
+        regs->eax = -1;
+    }
 }
 
 static void syscall_waitpid(REGISTERS* regs) {

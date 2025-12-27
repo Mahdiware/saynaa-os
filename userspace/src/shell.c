@@ -1,21 +1,29 @@
+#include "libc/args.h"
 #include "libc/pathutil.h"
 #include "libc/stdio.h"
 #include "libc/string.h"
 #include "libc/syscall.h"
 
-static void shell(void);
-static int parse_args(char* line, char* argv[], int max);
-static void read_line(char* buf, size_t max);
-static int exec_command(const char* cwd, int argc, char* argv[]);
+enum {
+    SHELL_MAX_LINE = 256,
+    SHELL_MAX_ARGS = 8,
+};
+
+static void shell_loop(void);
+static void shell_prompt(const char* user, const char* host, const char* cwd, int last_status);
+static void shell_read_line(char* buf, size_t max);
+static int shell_run_builtin(const char* cwd, int argc, char* argv[]);
+static int shell_exec_external(const char* cwd, int argc, char* argv[]);
+static int read_tty_device_char(void);
 
 int main(void) {
-    shell();
+    shell_loop();
     return 0;
 }
 
-static void shell(void) {
-    char line[256];
-    char* argv[9];
+static void shell_loop(void) {
+    char line[SHELL_MAX_LINE];
+    char* argv[SHELL_MAX_ARGS + 1];
     const char* user = "user";
     const char* host = "saynaa";
     int last_status = 0;
@@ -29,28 +37,32 @@ static void shell(void) {
             strcpy(cwd, "?");
         }
 
-        printf("[%d] %s@%s:%s$ ", last_status, user, host, cwd);
-        read_line(line, sizeof(line));
-        int argc = parse_args(line, argv, 8);
+        shell_prompt(user, host, cwd, last_status);
+        shell_read_line(line, sizeof(line));
+
+        int argc = split_args(line, argv, SHELL_MAX_ARGS);
         if (argc == 0) {
             continue;
         }
 
-        if (strcmp(argv[0], "exit") == 0) {
-            sys_exit();
+        int builtin_status = shell_run_builtin(cwd, argc, argv);
+        if (builtin_status >= 0) {
+            last_status = builtin_status;
+            continue;
         }
 
-        last_status = exec_command(cwd, argc, argv);
+        last_status = shell_exec_external(cwd, argc, argv);
     }
 }
 
-static void read_line(char* buf, size_t max) {
+static void shell_prompt(const char* user, const char* host, const char* cwd, int last_status) {
+    printf("[%d] %s@%s:%s$ ", last_status, user, host, cwd);
+}
+
+static void shell_read_line(char* buf, size_t max) {
     size_t len = 0;
     while (1) {
-        int c = sys_getchar();
-        if (c < 0) {
-            continue;
-        }
+        int c = read_tty_device_char();
         if (c == '\n') {
             sys_putchar('\n');
             buf[len] = '\0';
@@ -69,30 +81,38 @@ static void read_line(char* buf, size_t max) {
     }
 }
 
-static int parse_args(char* line, char* argv[], int max) {
-    int argc = 0;
-    char* p = line;
-    while (*p && argc < max) {
-        while (*p == ' ') {
-            p++;
-        }
-        if (*p == '\0') {
-            break;
-        }
-        argv[argc++] = p;
-        while (*p && *p != ' ') {
-            p++;
-        }
-        if (*p == '\0') {
-            break;
-        }
-        *p++ = '\0';
+static int shell_run_builtin(const char* cwd, int argc, char* argv[]) {
+    (void) cwd;
+    if (argc <= 0) {
+        return 0;
     }
-    argv[argc] = NULL;
-    return argc;
+
+    if (strcmp(argv[0], "exit") == 0) {
+        sys_exit();
+        return 0;
+    }
+
+    if (strcmp(argv[0], "cd") == 0) {
+        const char* target = (argc >= 2) ? argv[1] : "/";
+        char abs[256];
+
+        if (!make_abs_path(cwd, target, abs, sizeof(abs))) {
+            puts("cd: bad path");
+            return 1;
+        }
+
+        if (sys_chdir(abs) != 0) {
+            puts("cd: failed");
+            return 1;
+        }
+
+        return 0;
+    }
+
+    return -1;
 }
 
-static int exec_command(const char* cwd, int argc, char* argv[]) {
+static int shell_exec_external(const char* cwd, int argc, char* argv[]) {
     if (argc == 0) {
         return 1;
     }
@@ -109,20 +129,11 @@ static int exec_command(const char* cwd, int argc, char* argv[]) {
         snprintf(path, sizeof(path), "/bin/%s", cmd);
     }
 
-    char resolved[8][256];
-    char* exec_argv[9];
-    int count = argc > 8 ? 8 : argc;
+    char* exec_argv[SHELL_MAX_ARGS + 1];
+    int count = argc > SHELL_MAX_ARGS ? SHELL_MAX_ARGS : argc;
 
     for (int i = 0; i < count; i++) {
-        if (i > 0 && (strcmp(cmd, "ls") == 0 || strcmp(cmd, "cat") == 0)) {
-            if (!make_abs_path(cwd, argv[i], resolved[i], sizeof(resolved[i]))) {
-                printf("bad path: %s\n", argv[i]);
-                return 1;
-            }
-            exec_argv[i] = resolved[i];
-        } else {
-            exec_argv[i] = argv[i];
-        }
+        exec_argv[i] = argv[i];
     }
     exec_argv[count] = NULL;
 
@@ -131,6 +142,18 @@ static int exec_command(const char* cwd, int argc, char* argv[]) {
         printf("unknown: %s\n", cmd);
         return 1;
     }
-    sys_waitpid(pid);
+    if (sys_waitpid(pid) < 0) {
+        return 1;
+    }
     return 0;
+}
+
+static int read_tty_device_char(void) {
+    char ch = 0;
+    while (1) {
+        int ret = sys_readfile("/dev/tty", 0, 1, &ch);
+        if (ret == 1) {
+            return (unsigned char) ch;
+        }
+    }
 }

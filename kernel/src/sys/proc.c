@@ -62,8 +62,9 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
     uintptr_t pd_phys = pmm_alloc_page();
 
     // Copy the kernel page directory with a temporary mapping
-    page_t* p = paging_get_page(temp_page, false, 0);
+    page_t* p = paging_get_page(temp_page, true, 0);
     *p = pd_phys | PAGE_PRESENT | PAGE_RW;
+    paging_invalidate_page(temp_page);
     memcpy((void*) temp_page, (void*) 0xFFFFF000, 0x1000);
     directory_entry_t* pd = (directory_entry_t*) temp_page;
     pd[1023] = pd_phys | PAGE_PRESENT | PAGE_RW;
@@ -73,8 +74,13 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
         pd[i] = 0; // Unmap everything below the kernel
     }
 
-    // We can now switch to that directory to modify it easily
-    uintptr_t previous_pd = *paging_get_page(0xFFFFF000, false, 0) & PAGE_FRAME;
+    // Temporarily switch to a fresh page directory to build the new user address space
+    page_t* current_pd_page = paging_get_page(0xFFFFF000, false, 0);
+    uintptr_t previous_pd = current_pd_page ? (*current_pd_page & PAGE_FRAME) : 0;
+    if (!previous_pd) {
+        kprintf_error("proc: current page directory missing");
+        return NULL;
+    }
     paging_switch_directory(pd_phys);
 
     uintptr_t entry_point = 0x00001000;
