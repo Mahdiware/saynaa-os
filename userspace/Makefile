@@ -1,6 +1,6 @@
 include ../util/variables.mk
 
-LIBS := -lc
+LIBS := -lgui -lc
 
 C_SRCS := $(shell find src -type f -name '*.c')
 A_SRCS := $(shell find src -type f -name '*.asm')

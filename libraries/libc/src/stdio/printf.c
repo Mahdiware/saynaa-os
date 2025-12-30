@@ -2,8 +2,6 @@
 #include "libc/string.h"
 #include "libc/syscall.h"
 
-#include <stdarg.h>
-
 int printf(const char* restrict format, ...) {
     char buf[512];
     va_list args;
@@ -14,7 +12,7 @@ int printf(const char* restrict format, ...) {
         return n;
     }
     uint32_t len = (uint32_t) ((n < (int) sizeof(buf)) ? n : (int) sizeof(buf));
-    sys_write(buf, len);
+    sys_write(1, buf, len);
     return n;
 }
 
@@ -23,7 +21,7 @@ int puts(const char* s) {
         return -1;
     }
     uint32_t len = strlen(s);
-    sys_write(s, len);
-    sys_write("\n", 1);
+    sys_write(1, s, len);
+    sys_write(1, "\n", 1);
     return (int) len + 1;
 }

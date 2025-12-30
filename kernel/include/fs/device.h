@@ -2,8 +2,6 @@
 
 #include "kernel/fs/vfs.h"
 
-#include <stdbool.h>
-
 #define DEVICE_NAME_MAX 32
 
 typedef enum {

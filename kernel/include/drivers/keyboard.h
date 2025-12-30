@@ -104,6 +104,9 @@ void init_keyboard();
 // a blocking character read
 char kb_getchar();
 
+// non-blocking character read: returns 1 if a character was read into *out
+int kb_try_getchar(char* out);
+
 // a blocking scan code read
 char kb_get_scancode();
 

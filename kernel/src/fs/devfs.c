@@ -4,8 +4,6 @@
 #include "kernel/kernel.h"
 #include "libc/string.h"
 
-#include <stdbool.h>
-
 static vfs_node_t g_root;
 static bool g_inited = false;
 

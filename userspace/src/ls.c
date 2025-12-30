@@ -6,7 +6,7 @@
 int main(int argc, char** argv) {
     const char* arg = argc > 1 ? argv[1] : NULL;
     char cwd[256];
-    if (sys_getcwd(cwd, sizeof(cwd)) < 0) {
+    if (syscall2(SYS_GETCWD, (uint32_t) cwd, sizeof(cwd)) < 0) {
         puts("pwd: failed");
         return 1;
     }
@@ -21,11 +21,11 @@ int main(int argc, char** argv) {
 
     sys_dirent_t ent;
     uint32_t idx = 0;
-    while (sys_readdir(path, idx++, &ent) == 0) {
+    while (syscall3(SYS_READDIR, (uint32_t) path, idx++, (uint32_t) &ent) == 0) {
         char full[256];
         make_abs_path(path, ent.name, full, sizeof(full));
         sys_stat_t st;
-        int is_dir = (sys_stat(full, &st) == 0) && (st.flags & SYS_NODE_DIR);
+        int is_dir = (syscall2(SYS_STAT, (uint32_t) full, (uint32_t) &st) == 0) && (st.flags & SYS_NODE_DIR);
         if (is_dir) {
             printf("%s/\n", ent.name);
         } else {

@@ -1,115 +1,29 @@
 #pragma once
 
+#include "kernel/api/syscall_api.h"
 #include "libc/stdint.h"
 
-enum {
-    SYS_exit = 1,
-    SYS_putchar = 2,
-    SYS_write = 3,
-    SYS_getpid = 4,
-    SYS_yield = 5,
-    SYS_readfile = 6,
-    SYS_readdir = 7,
-    SYS_exec = 8,
-    SYS_stat = 9,
-    SYS_getchar = 10,
-    SYS_waitpid = 11,
-    SYS_getcwd = 12,
-    SYS_chdir = 13,
-};
+uint32_t syscall0(uint32_t num);
+uint32_t syscall1(uint32_t num, uint32_t arg1);
+uint32_t syscall2(uint32_t num, uint32_t arg1, uint32_t arg2);
+uint32_t syscall3(uint32_t num, uint32_t arg1, uint32_t arg2, uint32_t arg3);
 
-typedef struct sys_dirent {
-    char name[256];
-    uint32_t inode;
-} sys_dirent_t;
-
-typedef struct sys_stat {
-    uint32_t flags;
-    uint32_t size;
-} sys_stat_t;
-
-#define SYS_NODE_FILE 0x1
-#define SYS_NODE_DIR 0x2
-
-static inline int sys_putchar(char c) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_putchar), "b"(c) : "memory");
-    return ret;
+static inline int sys_open(const char* path, uint32_t flags) {
+    return (int) syscall2(SYS_OPEN, (uint32_t) path, flags);
 }
 
-static inline int sys_write(const char* buf, uint32_t len) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_write), "b"(buf), "c"(len) : "memory");
-    return ret;
+static inline int sys_close(int fd) {
+    return (int) syscall1(SYS_CLOSE, (uint32_t) fd);
 }
 
-static inline int sys_exit(void) {
-    asm volatile("int $0x30" : : "a"(SYS_exit) : "memory");
-    return 0;
+static inline int sys_read(int fd, void* buf, uint32_t size) {
+    return (int) syscall3(SYS_READ, (uint32_t) fd, (uint32_t) buf, size);
 }
 
-static inline int sys_getpid(void) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_getpid) : "memory");
-    return ret;
+static inline int sys_write(int fd, const void* buf, uint32_t size) {
+    return (int) syscall3(SYS_WRITE, (uint32_t) fd, (uint32_t) buf, size);
 }
 
-static inline int sys_yield(void) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_yield) : "memory");
-    return ret;
-}
-
-static inline int sys_readfile(const char* path, uint32_t offset, uint32_t size, void* buf) {
-    int ret;
-    asm volatile("int $0x30"
-        : "=a"(ret)
-        : "a"(SYS_readfile), "b"(path), "c"(offset), "d"(size), "S"(buf)
-        : "memory");
-    return ret;
-}
-
-static inline int sys_readdir(const char* path, uint32_t index, sys_dirent_t* dirent) {
-    int ret;
-    asm volatile("int $0x30"
-        : "=a"(ret)
-        : "a"(SYS_readdir), "b"(path), "c"(index), "d"(dirent)
-        : "memory");
-    return ret;
-}
-
-static inline int sys_exec(const char* path, char* const argv[]) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_exec), "b"(path), "c"(argv) : "memory");
-    return ret;
-}
-
-static inline int sys_stat(const char* path, sys_stat_t* st) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_stat), "b"(path), "c"(st) : "memory");
-    return ret;
-}
-
-static inline int sys_getchar(void) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_getchar) : "memory");
-    return ret;
-}
-
-static inline int sys_waitpid(int pid) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_waitpid), "b"(pid) : "memory");
-    return ret;
-}
-
-static inline int sys_getcwd(char* buf, uint32_t len) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_getcwd), "b"(buf), "c"(len) : "memory");
-    return ret;
-}
-
-static inline int sys_chdir(const char* path) {
-    int ret;
-    asm volatile("int $0x30" : "=a"(ret) : "a"(SYS_chdir), "b"(path) : "memory");
-    return ret;
+static inline int sys_seek(int fd, int32_t offset, int whence) {
+    return (int) syscall3(SYS_SEEK, (uint32_t) fd, (uint32_t) offset, (uint32_t) whence);
 }

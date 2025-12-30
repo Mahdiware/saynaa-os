@@ -45,5 +45,7 @@ bool vfs_set_root(vfs_node_t* root);
 vfs_node_t* vfs_root(void);
 vfs_node_t* vfs_lookup(const char* path);
 ssize_t vfs_read(vfs_node_t* node, uint32_t offset, uint32_t size, uint8_t* buffer);
+ssize_t vfs_write(vfs_node_t* node, uint32_t offset, uint32_t size, const uint8_t* buffer);
 ssize_t vfs_pread(const char* path, uint32_t offset, uint32_t size, uint8_t* buffer);
+ssize_t vfs_pwrite(const char* path, uint32_t offset, uint32_t size, const uint8_t* buffer);
 int vfs_readdir(vfs_node_t* node, uint32_t index, vfs_dirent_t* dirent);

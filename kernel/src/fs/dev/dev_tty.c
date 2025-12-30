@@ -7,8 +7,6 @@
 #include "libc/stdio.h"
 #include "libc/string.h"
 
-#include <stdbool.h>
-
 typedef struct tty_binding {
     uint32_t line;
     bool use_active;
@@ -56,10 +54,15 @@ ssize_t ttydev_read_line(uint32_t line, uint32_t offset, uint32_t size, uint8_t*
         return -1;
     }
 
+    // Non-blocking: return 0 if no data is available.
+    // Userspace can poll and sleep; this avoids spinning in kernel code.
     uint32_t read = 0;
-    enable_interrupts();
     while (read < size) {
-        buffer[read++] = (uint8_t) kb_getchar();
+        char ch;
+        if (!kb_try_getchar(&ch)) {
+            break;
+        }
+        buffer[read++] = (uint8_t) ch;
     }
     return (ssize_t) read;
 }

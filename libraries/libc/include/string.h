@@ -37,3 +37,6 @@ char* strncpy(char* dest, const char* src, size_t n);
 
 // Appends src to dest
 char* strcat(char* dest, const char* src);
+
+// Duplicates a string using malloc
+char* strdup(const char* s);

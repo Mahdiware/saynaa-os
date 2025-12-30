@@ -7,9 +7,14 @@
 #include "kernel/cpu/serial.h"
 #include "kernel/cpu/timer.h"
 #include "kernel/drivers/keyboard.h"
+#include "kernel/drivers/mouse.h"
 #include "kernel/fs/dev/dev_console.h"
+#include "kernel/fs/dev/dev_fb.h"
+#include "kernel/fs/dev/dev_kbd.h"
+#include "kernel/fs/dev/dev_mouse.h"
 #include "kernel/fs/dev/dev_null.h"
 #include "kernel/fs/dev/dev_tty.h"
+#include "kernel/fs/dev/dev_wm.h"
 #include "kernel/fs/dev/dev_zero.h"
 #include "kernel/fs/ext2.h"
 #include "kernel/fs/vfs.h"
@@ -42,7 +47,12 @@ void kernel_main(mb2_t* boot, uint32_t magic) {
 
     init_fb(boot);
     set_text_color(vga_to_color(15), vga_to_color(0));
+    init_dev_fb();
+    init_dev_kbd();
+    init_dev_mouse();
+    init_dev_wm();
     init_keyboard();
+    init_mouse();
     init_dev_null();
     init_dev_zero();
     init_dev_tty();
@@ -81,12 +91,28 @@ void kernel_main(mb2_t* boot, uint32_t magic) {
     }
     set_font_scale(1);
 
-    if (vfs_root()) {
-        if (!proc_run_path("/bin/shell", NULL)) {
-            kprintf("failed to run /bin/shell\n");
+    bool graphic = false;
+
+    if (!vfs_root()) {
+        kprintf_error("no root filesystem mounted");
+        abort();
+    }
+
+    if (graphic) {
+        if (!proc_run_path("/bin/wm", NULL)) {
+            kprintf("failed to run /bin/wm\n");
+            abort();
+        }
+
+        if (!proc_run_path("/bin/background", NULL)) {
+            kprintf("failed to run /bin/background\n");
+            abort();
         }
     } else {
-        kprintf_error("no root filesystem mounted; skipping /bin/shell");
+        if (!proc_run_path("/bin/shell", NULL)) {
+            kprintf("failed to run /bin/shell\n");
+            abort();
+        }
     }
 
     proc_enter_usermode();

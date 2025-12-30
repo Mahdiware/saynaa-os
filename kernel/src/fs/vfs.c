@@ -85,12 +85,27 @@ ssize_t vfs_read(vfs_node_t* node, uint32_t offset, uint32_t size, uint8_t* buff
     return node->ops.read(node, offset, size, buffer);
 }
 
+ssize_t vfs_write(vfs_node_t* node, uint32_t offset, uint32_t size, const uint8_t* buffer) {
+    if (!node || !node->ops.write) {
+        return -1;
+    }
+    return node->ops.write(node, offset, size, buffer);
+}
+
 ssize_t vfs_pread(const char* path, uint32_t offset, uint32_t size, uint8_t* buffer) {
     vfs_node_t* node = vfs_lookup(path);
     if (!node) {
         return -1;
     }
     return vfs_read(node, offset, size, buffer);
+}
+
+ssize_t vfs_pwrite(const char* path, uint32_t offset, uint32_t size, const uint8_t* buffer) {
+    vfs_node_t* node = vfs_lookup(path);
+    if (!node) {
+        return -1;
+    }
+    return vfs_write(node, offset, size, buffer);
 }
 
 int vfs_readdir(vfs_node_t* node, uint32_t index, vfs_dirent_t* dirent) {

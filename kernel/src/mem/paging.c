@@ -1,6 +1,7 @@
 #include "kernel/mem/paging.h"
 
 #include "kernel/cpu/serial.h"
+#include "kernel/sys/proc.h"
 #include "kernel/utils/debug.h"
 #include "libc/math.h"
 #include "libc/string.h"
@@ -228,7 +229,7 @@ void paging_fault_handler(REGISTERS* regs) {
     }
 
     uint32_t err = regs->err_code;
-    uint32_t pid = 0;
+    uint32_t pid = current_process->pid;
     uintptr_t cr2 = 0;
     asm volatile("mov %%cr2, %0\n" : "=r"(cr2));
 
@@ -253,7 +254,11 @@ void paging_fault_handler(REGISTERS* regs) {
         kprintf_error("The fault occured during an instruction fetch");
     }
 
-    abort();
+    if (pid) {
+        proc_exit();
+    } else {
+        abort();
+    }
 }
 
 /* Allocates `num` pages of physical memory, mapped starting at `virt`.
