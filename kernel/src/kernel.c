@@ -91,7 +91,7 @@ void kernel_main(mb2_t* boot, uint32_t magic) {
     }
     set_font_scale(1);
 
-    bool graphic = false;
+    bool graphic = true;
 
     if (!vfs_root()) {
         kprintf_error("no root filesystem mounted");
