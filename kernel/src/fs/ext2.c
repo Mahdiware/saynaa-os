@@ -6,8 +6,6 @@
 #include "kernel/utils/debug.h"
 #include "libc/string.h"
 
-#include <stdbool.h>
-
 typedef struct ext2_fs {
     uint8_t* image;
     size_t size;

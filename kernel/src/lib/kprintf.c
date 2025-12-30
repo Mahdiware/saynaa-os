@@ -1,8 +1,10 @@
 #include "kernel/lib/kprintf.h"
 
 #include "kernel/cpu/serial.h"
+#include "kernel/kernel.h"
 #include "kernel/lib/fb.h"
 #include "kernel/lib/font.h"
+#include "kernel/utils/spinlock.h"
 #include "libc/string.h"
 
 int font_scale = 1;
@@ -11,6 +13,9 @@ int pos_x2 = 0;
 
 uint32_t fore_color = 0xffffffff;
 uint32_t back_color = 0xff000000;
+
+static spinlock_t kprintf_lock = SPINLOCK_INIT;
+static char kprintf_buffer[4096];
 
 #define print_char(c) vbe_print_char(c)
 
@@ -123,13 +128,33 @@ void put_string(char* s) {
 }
 
 int kprintf(const char* fmt, ...) {
+    uint32_t flags = spinlock_lock_irqsave(&kprintf_lock);
+
     va_list args;
     va_start(args, fmt);
 
-    char text[4096] = {0};
-    vsprintf(text, fmt, args);
-    put_string(text);
+    vsnprintf(kprintf_buffer, sizeof(kprintf_buffer), fmt, args);
+    put_string(kprintf_buffer);
 
     va_end(args);
+    spinlock_unlock_irqrestore(&kprintf_lock, flags);
+    return 0;
+}
+
+int kserialf(const char* fmt, ...) {
+    uint32_t flags = spinlock_lock_irqsave(&kprintf_lock);
+
+    va_list args;
+    va_start(args, fmt);
+
+    vsnprintf(kprintf_buffer, sizeof(kprintf_buffer), fmt, args);
+    va_end(args);
+
+    uint32_t l = strlen(kprintf_buffer);
+    for (uint32_t i = 0; i < l; i++) {
+        write_serial(kprintf_buffer[i]);
+    }
+
+    spinlock_unlock_irqrestore(&kprintf_lock, flags);
     return 0;
 }

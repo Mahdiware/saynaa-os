@@ -1,25 +1,66 @@
 #include "kernel/drivers/keyboard.h"
 
 #include "kernel/cpu/ports.h"
+#include "kernel/fs/dev/dev_kbd.h"
 #include "kernel/fs/device.h"
 #include "kernel/kernel.h"
+#include "libc/ctype.h"
 #include "libc/string.h"
 
 static bool g_caps_lock = false;
 static bool g_shift_pressed = false;
-volatile char g_ch = 0, g_scan_code = 0;
+static volatile char g_scan_code = 0;
+
+// TTY ring buffer so multiple keystrokes are not lost and input is IRQ-safe.
+#define TTYQ_LEN 128
+static volatile uint32_t g_tty_r = 0;
+static volatile uint32_t g_tty_w = 0;
+static char g_tty_q[TTYQ_LEN];
+
+static void ttyq_push(char c) {
+    uint32_t irq = irq_save();
+    uint32_t w = g_tty_w;
+    uint32_t next = (w + 1) % TTYQ_LEN;
+    if (next == g_tty_r) {
+        // drop oldest
+        g_tty_r = (g_tty_r + 1) % TTYQ_LEN;
+    }
+    g_tty_q[w] = c;
+    g_tty_w = next;
+    irq_restore(irq);
+}
+
+static int ttyq_pop(char* out) {
+    if (!out) {
+        return 0;
+    }
+    uint32_t irq = irq_save();
+    if (g_tty_r == g_tty_w) {
+        irq_restore(irq);
+        return 0;
+    }
+    uint32_t r = g_tty_r;
+    *out = g_tty_q[r];
+    g_tty_r = (r + 1) % TTYQ_LEN;
+    irq_restore(irq);
+    return 1;
+}
 
 static device_t g_keyboard_device;
 static ssize_t keyboard_device_read(device_t* dev, uint32_t offset, uint32_t size, uint8_t* buffer);
 
 void keyboard_handler(REGISTERS* r);
 
-// see scan codes defined in keyboard.h for index
-char g_scan_code_chars[128] = {0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=',
-    '\b', '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0, 'a', 's', 'd',
-    'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',',
-    '.', '/', 0, '*', 0, ' ', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '-', 0, 0, 0, '+', 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// Scan code lookup table defined in keyboard.h order.
+static const char g_scan_code_chars[128] = {0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+    '-', '=', '\b', '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', 0, 'a',
+    's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\', 'z', 'x', 'c', 'v', 'b', 'n',
+    'm', ',', '.', '/', 0, '*', 0, ' ', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '-', 0, 0,
+    0, '+', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+static inline bool is_shift_scancode(uint32_t code) {
+    return code == SCAN_CODE_KEY_LEFT_SHIFT || code == SCAN_CODE_KEY_RIGHT_SHIFT;
+}
 
 void init_keyboard() {
     isr_register_handler(IRQ_BASE + 1, keyboard_handler);
@@ -97,60 +138,72 @@ char alternate_chars(char ch) {
     }
 }
 
-void keyboard_handler(REGISTERS* r) {
-    int scancode;
-
-    g_ch = 0;
-    scancode = get_scancode();
-    g_scan_code = scancode;
-    if (scancode & 0x80) {
-        // key release
-    } else {
-        // key down
-        switch (scancode) {
-        case SCAN_CODE_KEY_CAPS_LOCK:
-            if (g_caps_lock == false)
-                g_caps_lock = true;
-            else
-                g_caps_lock = false;
-            break;
-
-        case SCAN_CODE_KEY_ENTER:
-            g_ch = '\n';
-            break;
-
-        case SCAN_CODE_KEY_TAB:
-            g_ch = '\t';
-            break;
-
-        case SCAN_CODE_KEY_LEFT_SHIFT:
-            g_shift_pressed = true;
-            break;
-
-        default:
-            g_ch = g_scan_code_chars[scancode];
-            // if caps in on, covert to upper
-            if (g_caps_lock) {
-                // if shift is pressed before
-                if (g_shift_pressed) {
-                    // replace alternate chars
-                    g_ch = alternate_chars(g_ch);
-                } else
-                    g_ch = toupper(g_ch);
-            } else {
-                if (g_shift_pressed) {
-                    if (isalpha(g_ch))
-                        g_ch = toupper(g_ch);
-                    else
-                        // replace alternate chars
-                        g_ch = alternate_chars(g_ch);
-                } else
-                    g_ch = g_scan_code_chars[scancode];
-                g_shift_pressed = false;
-            }
-            break;
-        }
+static char resolve_printable_char(uint32_t scancode) {
+    if (scancode >= sizeof(g_scan_code_chars)) {
+        return 0;
     }
+
+    char repr = g_scan_code_chars[scancode];
+    if (!repr) {
+        return 0;
+    }
+
+    if (isalpha(repr)) {
+        bool upper = g_caps_lock ^ g_shift_pressed;
+        return upper ? toupper(repr) : tolower(repr);
+    }
+
+    return g_shift_pressed ? alternate_chars(repr) : repr;
+}
+
+void keyboard_handler(REGISTERS* r) {
+    unused(r);
+
+    int scancode = get_scancode();
+    if (!scancode) {
+        return;
+    }
+
+    g_scan_code = scancode;
+
+    if (scancode & 0x80) {
+        uint32_t code = (uint32_t) (scancode & 0x7F);
+        if (is_shift_scancode(code)) {
+            g_shift_pressed = false;
+        }
+        dev_kbd_push_event(code, false, 0);
+        return;
+    }
+
+    char repr = 0;
+    switch (scancode) {
+    case SCAN_CODE_KEY_CAPS_LOCK:
+        g_caps_lock = !g_caps_lock;
+        break;
+    case SCAN_CODE_KEY_ENTER:
+        repr = '\n';
+        break;
+    case SCAN_CODE_KEY_TAB:
+        repr = '\t';
+        break;
+    case SCAN_CODE_KEY_BACKSPACE:
+        repr = '\b';
+        break;
+    case SCAN_CODE_KEY_LEFT_SHIFT:
+    case SCAN_CODE_KEY_RIGHT_SHIFT:
+        g_shift_pressed = true;
+        break;
+    default:
+        repr = resolve_printable_char((uint32_t) scancode);
+        break;
+    }
+
+    if (repr) {
+        ttyq_push(repr);
+    }
+
+    // Always push into /dev/kbd0 so userspace WM can read it.
+    dev_kbd_push_event((uint32_t) scancode, true, repr);
 }
 
 static ssize_t keyboard_device_read(device_t* dev, uint32_t offset, uint32_t size, uint8_t* buffer) {
@@ -160,24 +213,32 @@ static ssize_t keyboard_device_read(device_t* dev, uint32_t offset, uint32_t siz
         return -1;
     }
 
+    // Non-blocking read.
     uint32_t read = 0;
-    enable_interrupts();
     while (read < size) {
-        buffer[read++] = (uint8_t) kb_getchar();
+        char ch;
+        if (!kb_try_getchar(&ch)) {
+            break;
+        }
+        buffer[read++] = (uint8_t) ch;
     }
     return (ssize_t) read;
 }
 
 // a blocking character read
 char kb_getchar() {
-    char c;
-
-    while (g_ch <= 0)
-        ;
-    c = g_ch;
-    g_ch = 0;
-    g_scan_code = 0;
+    char c = 0;
+    while (!ttyq_pop(&c)) {
+    }
     return c;
+}
+
+int kb_try_getchar(char* out) {
+    if (!out) {
+        return 0;
+    }
+
+    return ttyq_pop(out);
 }
 
 char kb_get_scancode() {
@@ -186,7 +247,6 @@ char kb_get_scancode() {
     while (g_scan_code <= 0)
         ;
     code = g_scan_code;
-    g_ch = 0;
     g_scan_code = 0;
     return code;
 }

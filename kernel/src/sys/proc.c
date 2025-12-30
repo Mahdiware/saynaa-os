@@ -1,5 +1,6 @@
 #include "kernel/sys/proc.h"
 
+#include "kernel/api/syscall_api.h"
 #include "kernel/cpu/fpu.h"
 #include "kernel/cpu/gdt.h"
 #include "kernel/cpu/timer.h"
@@ -21,12 +22,43 @@
 extern uint32_t irq_handler_end;
 
 process_t* current_process = NULL;
+uint32_t PROC_OFF_directory = offsetof(process_t, directory);
+uint32_t PROC_OFF_kernel_stack = offsetof(process_t, kernel_stack);
+uint32_t PROC_OFF_saved_kernel_stack = offsetof(process_t, saved_kernel_stack);
 sched_t* scheduler = NULL;
 
 static uint32_t next_pid = 1;
 
+static void proc_init_fd_table(process_t* p) {
+    memset(p->fds, 0, sizeof(p->fds));
+
+    vfs_node_t* tty = vfs_lookup("/dev/tty");
+    if (tty) {
+        p->fds[0] = (proc_fd_t) {.used = true, .flags = O_RDONLY, .offset = 0, .node = tty};
+        p->fds[1] = (proc_fd_t) {.used = true, .flags = O_WRONLY, .offset = 0, .node = tty};
+    }
+}
+
 void init_proc() {
     scheduler = sched_robin();
+}
+
+static void proc_stdout_retain(proc_stdout_t* out) {
+    if (out) {
+        out->refcount++;
+    }
+}
+
+static void proc_stdout_release(proc_stdout_t* out) {
+    if (!out) {
+        return;
+    }
+    if (out->refcount > 0) {
+        out->refcount--;
+    }
+    if (out->refcount == 0) {
+        kfree(out);
+    }
 }
 
 /* Creates a process running the code specified at `code` in raw instructions
@@ -58,8 +90,22 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
     uint32_t num_stack_pages = PROC_STACK_PAGES;
 
     process_t* process = kmalloc(sizeof(process_t));
+    if (!process) {
+        kprintf_error("proc: failed to allocate process struct");
+        return NULL;
+    }
+
     uintptr_t kernel_stack = (uintptr_t) aligned_alloc(4, 0x1000 * PROC_KERNEL_STACK_PAGES);
+    if (!kernel_stack) {
+        kprintf_error("proc: failed to allocate kernel stack");
+        return NULL;
+    }
+
     uintptr_t pd_phys = pmm_alloc_page();
+    if (!pd_phys) {
+        kprintf_error("proc: failed to allocate page directory");
+        return NULL;
+    }
 
     // Copy the kernel page directory with a temporary mapping
     page_t* p = paging_get_page(temp_page, true, 0);
@@ -146,18 +192,28 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
 
     const char* parent_cwd = (current_process && current_process->cwd[0]) ? current_process->cwd : "/";
 
-    *process = (process_t) {.pid = next_pid++,
+    *process = (process_t) {.magic = 0xC0FEBABE,
+        .pid = next_pid++,
         .code_len = num_code_pages,
         .stack_len = num_stack_pages,
         .directory = pd_phys,
         .kernel_stack = kernel_stack + PROC_KERNEL_STACK_PAGES * 0x1000 - 4,
         .saved_kernel_stack = kernel_stack + PROC_KERNEL_STACK_PAGES * 0x1000 - 4,
         .initial_user_stack = (uintptr_t) ustack_int,
+        .mem_len = 0,
         .sleep_ticks = 0,
-        .parent_pid = parent};
+        .parent_pid = parent,
+        .shm_next_virt = 0xB0000000,
+        .magic2 = 0xC0FEBABE};
 
     strncpy(process->cwd, parent_cwd, sizeof(process->cwd) - 1);
     process->cwd[sizeof(process->cwd) - 1] = '\0';
+
+    proc_init_fd_table(process);
+
+    // Inherit parent's stdout capture if present.
+    process->stdout = current_process ? current_process->stdout : NULL;
+    proc_stdout_retain(process->stdout);
 
     // We use this label as the return address from `proc_switch_process`
     uint32_t* jmp = &irq_handler_end;
@@ -217,6 +273,11 @@ process_t* proc_run_path(const char* path, char** argv) {
     vfs_node_t* node = vfs_lookup(path);
     if (!node) {
         kprintf_error("proc: cannot find %s", path);
+        return NULL;
+    }
+
+    if (!(node->flags & VFS_NODE_FILE)) {
+        kprintf_error("proc: %s is not a file", path);
         return NULL;
     }
 
@@ -310,6 +371,9 @@ void proc_enter_usermode() {
 void proc_exit() {
     process_t* exiting = current_process;
 
+    proc_stdout_release(exiting->stdout);
+    exiting->stdout = NULL;
+
     scheduler->sched_exit(scheduler, exiting);
 
     // Pick next process; returns to caller if no switch needed
@@ -328,4 +392,65 @@ uint32_t proc_get_current_pid() {
     } else {
         return 0;
     }
+}
+
+void proc_sleep(uint32_t ms) {
+    if (!current_process) {
+        return;
+    }
+
+    // Convert milliseconds to scheduler ticks.
+    // Use ceil division so non-zero ms never becomes 0 ticks.
+    uint32_t ticks = 0;
+    if (ms > 0) {
+        ticks = (ms * TIMER_FREQ + 999) / 1000;
+        if (ticks == 0) {
+            ticks = 1;
+        }
+    }
+
+    current_process->sleep_ticks = ticks;
+    proc_schedule();
+}
+
+void* proc_sbrk(intptr_t size) {
+    if (!current_process) {
+        return (void*) -1;
+    }
+
+    uintptr_t end = 0x1000 + 0x1000 * current_process->code_len + current_process->mem_len;
+
+    // Bytes available in the last allocated page
+    int32_t remaining_bytes = (end % 0x1000) ? (0x1000 - (int32_t) (end % 0x1000)) : 0;
+
+    if (size > 0) {
+        if (remaining_bytes < size) {
+            uint32_t needed_size = (uint32_t) (size - remaining_bytes);
+            uint32_t num = divide_up(needed_size, 0x1000);
+
+            if (!paging_alloc_pages(align_to((uint32_t) end, 0x1000), num)) {
+                return (void*) -1;
+            }
+        }
+    } else if (size < 0) {
+        if ((intptr_t) (end + (uintptr_t) size) < (intptr_t) (0x1000 * current_process->code_len)) {
+            return (void*) -1;
+        }
+
+        int32_t taken = 0x1000 - remaining_bytes;
+
+        // We must free at least a page
+        if (taken + size < 0) {
+            uint32_t freed_size = (uint32_t) (taken - size);
+            uint32_t num = divide_up(freed_size, 0x1000);
+
+            uintptr_t virt = end - (end % 0x1000);
+            for (uint32_t i = 0; i < num; i++) {
+                paging_unmap_page(virt - 0x1000 * i);
+            }
+        }
+    }
+
+    current_process->mem_len = (uint32_t) ((intptr_t) current_process->mem_len + size);
+    return (void*) end;
 }

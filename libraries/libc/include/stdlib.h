@@ -5,6 +5,13 @@
 // Returns the absolute value of a signed integer.
 int abs(int num);
 
+void* malloc(size_t size);
+void free(void* pointer);
+void* calloc(size_t nmemb, size_t size);
+void* zalloc(size_t size);
+void* realloc(void* ptr, size_t size);
+void* aligned_alloc(size_t align, size_t size);
+
 // Performs unsigned 64-bit integer division (n / d) and returns the quotient.
 uint64_t __udivdi3(uint64_t n, uint64_t d);
 

@@ -53,13 +53,14 @@ static void print_registers(REGISTERS* reg) {
  * being called in exception.asm
  */
 void isr_exception_handler(REGISTERS reg) {
-    if (reg.int_no < 32) {
-        kprintf("EXCEPTION: %s\n", exception_messages[reg.int_no]);
-        print_registers(&reg);
-        infinite_loop();
-    }
     if (g_interrupt_handlers[reg.int_no] != NULL) {
         ISR handler = g_interrupt_handlers[reg.int_no];
         handler(&reg);
+    } else {
+        if (reg.int_no < 32) {
+            kprintf("EXCEPTION: %s\n", exception_messages[reg.int_no]);
+            print_registers(&reg);
+            infinite_loop();
+        }
     }
 }

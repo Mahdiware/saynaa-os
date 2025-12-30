@@ -32,7 +32,7 @@ static void shell_loop(void) {
 
     while (1) {
         char cwd[256];
-        int cwd_result = sys_getcwd(cwd, sizeof(cwd));
+        int cwd_result = (int) syscall2(SYS_GETCWD, (uint32_t) cwd, sizeof(cwd));
         if (cwd_result < 0) {
             strcpy(cwd, "?");
         }
@@ -64,18 +64,18 @@ static void shell_read_line(char* buf, size_t max) {
     while (1) {
         int c = read_tty_device_char();
         if (c == '\n') {
-            sys_putchar('\n');
+            syscall1(SYS_PUTCHAR, '\n');
             buf[len] = '\0';
             return;
         } else if (c == '\b' || c == 127) {
             if (len > 0) {
                 len--;
-                sys_write("\b \b", 3);
+                sys_write(1, "\b \b", 3);
             }
         } else if (c >= ' ' && c < 127) {
             if (len + 1 < max) {
                 buf[len++] = (char) c;
-                sys_putchar((char) c);
+                syscall1(SYS_PUTCHAR, (char) c);
             }
         }
     }
@@ -88,7 +88,7 @@ static int shell_run_builtin(const char* cwd, int argc, char* argv[]) {
     }
 
     if (strcmp(argv[0], "exit") == 0) {
-        sys_exit();
+        syscall0(SYS_EXIT);
         return 0;
     }
 
@@ -101,7 +101,7 @@ static int shell_run_builtin(const char* cwd, int argc, char* argv[]) {
             return 1;
         }
 
-        if (sys_chdir(abs) != 0) {
+        if (syscall1(SYS_CHDIR, (uint32_t) abs) != 0) {
             puts("cd: failed");
             return 1;
         }
@@ -137,12 +137,12 @@ static int shell_exec_external(const char* cwd, int argc, char* argv[]) {
     }
     exec_argv[count] = NULL;
 
-    int pid = sys_exec(path, exec_argv);
+    int pid = (int) syscall2(SYS_EXEC, (uint32_t) path, (uint32_t) exec_argv);
     if (pid < 0) {
         printf("unknown: %s\n", cmd);
         return 1;
     }
-    if (sys_waitpid(pid) < 0) {
+    if (syscall1(SYS_WAITPID, pid) < 0) {
         return 1;
     }
     return 0;
@@ -151,9 +151,11 @@ static int shell_exec_external(const char* cwd, int argc, char* argv[]) {
 static int read_tty_device_char(void) {
     char ch = 0;
     while (1) {
-        int ret = sys_readfile("/dev/tty", 0, 1, &ch);
+        int ret = sys_read(0, &ch, 1);
         if (ret == 1) {
             return (unsigned char) ch;
         }
+        // /dev/tty is non-blocking; avoid burning CPU.
+        syscall1(SYS_SLEEP, 1);
     }
 }

@@ -16,23 +16,29 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    int fd = sys_open(path, O_RDONLY);
+    if (fd < 0) {
+        puts("cat: open failed");
+        return 1;
+    }
+
     char buf[512];
-    uint32_t offset = 0;
     int rc = 0;
     while (1) {
-        int n = sys_readfile(path, offset, sizeof(buf) - 1, buf);
+        int n = sys_read(fd, buf, sizeof(buf));
         if (n < 0) {
             rc = 1;
             break;
         }
-        if (n == 0)
+        if (n == 0) {
             break;
-        buf[n] = '\0';
-        sys_write(buf, (uint32_t) n);
-        offset += (uint32_t) n;
-        if ((uint32_t) n < sizeof(buf) - 1)
+        }
+        sys_write(1, buf, (uint32_t) n);
+        if ((uint32_t) n < sizeof(buf)) {
             break;
+        }
     }
-    sys_write("\n", 1);
+    sys_write(1, "\n", 1);
+    sys_close(fd);
     return rc;
 }

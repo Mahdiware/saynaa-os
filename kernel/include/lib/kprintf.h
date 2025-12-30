@@ -11,3 +11,4 @@ void set_font_scale(int scale);
 void put_string(char*);
 void set_pos_text(int x, int y);
 int kprintf(const char* fmt, ...);
+int kserialf(const char* fmt, ...);

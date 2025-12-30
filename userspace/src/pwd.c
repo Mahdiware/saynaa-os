@@ -3,7 +3,7 @@
 
 int main(void) {
     char cwd[256];
-    if (sys_getcwd(cwd, sizeof(cwd)) < 0) {
+    if (syscall2(SYS_GETCWD, (uint32_t) cwd, sizeof(cwd)) < 0) {
         puts("pwd: failed");
         return 1;
     }

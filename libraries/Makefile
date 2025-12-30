@@ -1,4 +1,4 @@
-LIBRARIES   := libc
+LIBRARIES   := libc libgui
 LIBR_SETUP 	:= $(LIBRARIES:=.setup)
 LIBR_CLEAN 	:= $(LIBRARIES:=.clean)
 

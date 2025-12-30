@@ -1,9 +1,10 @@
-# Ignore build/temporary folders
+# Ignore build/temporary/notes folders
 build/
 obj/
 base/
 temp/
 isodir/
+notes/
 .vs/
 .vscode/
 
