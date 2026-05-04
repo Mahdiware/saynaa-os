@@ -1,6 +1,6 @@
 #include "libc/syscall.h"
 
 int main(void) {
-    syscall1(SYS_PUTCHAR, '\f');
+    (void) sys_write(1, "\f", 1);
     return 0;
 }

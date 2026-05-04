@@ -16,6 +16,7 @@ typedef struct vfs_dirent {
 typedef struct vfs_file_ops {
     ssize_t (*read)(vfs_node_t* node, uint32_t offset, uint32_t size, uint8_t* buffer);
     ssize_t (*write)(vfs_node_t* node, uint32_t offset, uint32_t size, const uint8_t* buffer);
+    int (*ioctl)(vfs_node_t* node, uint32_t request, void* arg);
     int (*readdir)(vfs_node_t* node, uint32_t index, vfs_dirent_t* dirent);
     vfs_node_t* (*finddir)(vfs_node_t* node, const char* name);
 } vfs_file_ops_t;
@@ -46,6 +47,7 @@ vfs_node_t* vfs_root(void);
 vfs_node_t* vfs_lookup(const char* path);
 ssize_t vfs_read(vfs_node_t* node, uint32_t offset, uint32_t size, uint8_t* buffer);
 ssize_t vfs_write(vfs_node_t* node, uint32_t offset, uint32_t size, const uint8_t* buffer);
+int vfs_ioctl(vfs_node_t* node, uint32_t request, void* arg);
 ssize_t vfs_pread(const char* path, uint32_t offset, uint32_t size, uint8_t* buffer);
 ssize_t vfs_pwrite(const char* path, uint32_t offset, uint32_t size, const uint8_t* buffer);
 int vfs_readdir(vfs_node_t* node, uint32_t index, vfs_dirent_t* dirent);

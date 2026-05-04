@@ -39,6 +39,13 @@ static void proc_init_fd_table(process_t* p) {
     }
 }
 
+static void proc_inherit_fd_table(process_t* p, const process_t* parent) {
+    if (!p || !parent) {
+        return;
+    }
+    memcpy(p->fds, parent->fds, sizeof(p->fds));
+}
+
 void init_proc() {
     scheduler = sched_robin();
 }
@@ -210,6 +217,10 @@ process_t* proc_run_code(uint8_t* code, uint32_t size, char** argv) {
     process->cwd[sizeof(process->cwd) - 1] = '\0';
 
     proc_init_fd_table(process);
+
+    if (current_process) {
+        proc_inherit_fd_table(process, current_process);
+    }
 
     // Inherit parent's stdout capture if present.
     process->stdout = current_process ? current_process->stdout : NULL;

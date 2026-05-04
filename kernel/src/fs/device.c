@@ -25,6 +25,14 @@ static ssize_t device_vfs_write(vfs_node_t* node, uint32_t offset, uint32_t size
     return dev->write(dev, offset, size, buffer);
 }
 
+static int device_vfs_ioctl(vfs_node_t* node, uint32_t request, void* arg) {
+    device_t* dev = node ? (device_t*) node->fs_private : NULL;
+    if (!dev || !dev->ioctl) {
+        return -1;
+    }
+    return dev->ioctl(dev, request, arg);
+}
+
 bool device_register(device_t* dev) {
     if (!dev || dev->name[0] == '\0') {
         return false;
@@ -44,6 +52,7 @@ bool device_register(device_t* dev) {
     dev->node.fs_private = dev;
     dev->node.ops.read = dev->read ? device_vfs_read : NULL;
     dev->node.ops.write = dev->write ? device_vfs_write : NULL;
+    dev->node.ops.ioctl = dev->ioctl ? device_vfs_ioctl : NULL;
 
     g_devices[g_device_count++] = dev;
     kprintf("device: registered %s\n", dev->name);

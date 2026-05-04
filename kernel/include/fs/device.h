@@ -9,6 +9,8 @@ typedef enum {
     DEVICE_TYPE_BLOCK = 2,
 } device_type_t;
 
+#define DEVICE_FLAG_HIDDEN (1u << 0)
+
 struct device;
 
 typedef ssize_t (*device_read_block_t)(struct device* dev, uint32_t block, uint32_t count, uint8_t* buffer);
@@ -26,6 +28,7 @@ typedef int (*device_munmap_t)(struct device* dev, void* addr);
 typedef struct device {
     char name[DEVICE_NAME_MAX];
     device_type_t type;
+    uint32_t flags;
     device_read_block_t read_block;
     device_write_block_t write_block;
     device_read_t read;

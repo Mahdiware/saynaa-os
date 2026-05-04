@@ -13,6 +13,7 @@
 #include "kernel/fs/dev/dev_kbd.h"
 #include "kernel/fs/dev/dev_mouse.h"
 #include "kernel/fs/dev/dev_null.h"
+#include "kernel/fs/dev/dev_pty.h"
 #include "kernel/fs/dev/dev_tty.h"
 #include "kernel/fs/dev/dev_wm.h"
 #include "kernel/fs/dev/dev_zero.h"
@@ -57,6 +58,7 @@ void kernel_main(mb2_t* boot, uint32_t magic) {
     init_dev_zero();
     init_dev_tty();
     init_dev_console();
+    init_dev_pty();
 
     init_proc();
     init_syscall();
@@ -91,7 +93,7 @@ void kernel_main(mb2_t* boot, uint32_t magic) {
     }
     set_font_scale(1);
 
-    bool graphic = true;
+    bool graphic = false;
 
     if (!vfs_root()) {
         kprintf_error("no root filesystem mounted");

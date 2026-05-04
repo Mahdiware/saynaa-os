@@ -3,6 +3,7 @@
 #include "libc/stdio.h"
 #include "libc/string.h"
 #include "libc/syscall.h"
+#include "libc/termios.h"
 
 enum {
     SHELL_MAX_LINE = 256,
@@ -61,21 +62,32 @@ static void shell_prompt(const char* user, const char* host, const char* cwd, in
 
 static void shell_read_line(char* buf, size_t max) {
     size_t len = 0;
+    bool echo = false;
+    struct termios term;
+    if (sys_ioctl(0, TCGETS, &term) == 0) {
+        echo = (term.c_lflag & ECHO) != 0;
+    }
     while (1) {
         int c = read_tty_device_char();
         if (c == '\n') {
-            syscall1(SYS_PUTCHAR, '\n');
+            if (!echo) {
+                syscall1(SYS_PUTCHAR, '\n');
+            }
             buf[len] = '\0';
             return;
         } else if (c == '\b' || c == 127) {
             if (len > 0) {
                 len--;
-                sys_write(1, "\b \b", 3);
+                if (!echo) {
+                    sys_write(1, "\b \b", 3);
+                }
             }
         } else if (c >= ' ' && c < 127) {
             if (len + 1 < max) {
                 buf[len++] = (char) c;
-                syscall1(SYS_PUTCHAR, (char) c);
+                if (!echo) {
+                    syscall1(SYS_PUTCHAR, (char) c);
+                }
             }
         }
     }

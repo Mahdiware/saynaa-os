@@ -8,3 +8,6 @@ extern const vfs_fs_ops_t devfs_driver;
 
 // Returns the root node of devfs (lazy-initialized).
 vfs_node_t* devfs_get_root(void);
+
+// Registers the /dev/pts directory node (optional).
+void devfs_register_pts_root(vfs_node_t* node);

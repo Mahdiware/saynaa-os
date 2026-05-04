@@ -2,6 +2,8 @@
 
 #include "kernel/cpu/isr.h"
 #include "kernel/cpu/timer.h"
+#include "kernel/drivers/keyboard.h"
+#include "kernel/fs/dev/dev_pty.h"
 #include "kernel/fs/dev/dev_tty.h"
 #include "kernel/fs/vfs.h"
 #include "kernel/kernel.h"
@@ -30,6 +32,7 @@ static void syscall_read(REGISTERS* regs);
 static void syscall_open(REGISTERS* regs);
 static void syscall_close(REGISTERS* regs);
 static void syscall_seek(REGISTERS* regs);
+static void syscall_ioctl(REGISTERS* regs);
 static void syscall_readdir(REGISTERS* regs);
 static void syscall_exec(REGISTERS* regs);
 static void syscall_stat(REGISTERS* regs);
@@ -44,6 +47,7 @@ static void syscall_readstdout(REGISTERS* regs);
 static void syscall_shm_create(REGISTERS* regs);
 static void syscall_shm_map(REGISTERS* regs);
 static void syscall_shm_close(REGISTERS* regs);
+static void syscall_set_kbd_mode(REGISTERS* regs);
 
 static proc_fd_t* fd_from_index(int fd);
 static int alloc_fd(vfs_node_t* node, uint32_t flags);
@@ -60,6 +64,7 @@ void init_syscall() {
     syscall_handlers[SYS_OPEN] = syscall_open;
     syscall_handlers[SYS_CLOSE] = syscall_close;
     syscall_handlers[SYS_SEEK] = syscall_seek;
+    syscall_handlers[SYS_IOCTL] = syscall_ioctl;
     syscall_handlers[SYS_GETPID] = syscall_getpid;
     syscall_handlers[SYS_YIELD] = syscall_yield;
     syscall_handlers[SYS_READDIR] = syscall_readdir;
@@ -76,6 +81,7 @@ void init_syscall() {
     syscall_handlers[SYS_SHM_CREATE] = syscall_shm_create;
     syscall_handlers[SYS_SHM_MAP] = syscall_shm_map;
     syscall_handlers[SYS_SHM_CLOSE] = syscall_shm_close;
+    syscall_handlers[SYS_SET_KBD_MODE] = syscall_set_kbd_mode;
 }
 
 static void syscall_handler(REGISTERS* regs) {
@@ -209,6 +215,17 @@ static void syscall_open(REGISTERS* regs) {
         return;
     }
 
+    if (strcmp(resolved, "/dev/ptmx") == 0) {
+        vfs_node_t* master = pty_open_master(NULL);
+        if (!master) {
+            regs->eax = -1;
+            return;
+        }
+        int fd = alloc_fd(master, flags ? flags : O_RDWR);
+        regs->eax = (int32_t) fd;
+        return;
+    }
+
     vfs_node_t* node = vfs_lookup(resolved);
     if (!node) {
         regs->eax = -1;
@@ -302,6 +319,20 @@ static void syscall_seek(REGISTERS* regs) {
 
     entry->offset = (uint32_t) new_off;
     regs->eax = (int32_t) entry->offset;
+}
+
+static void syscall_ioctl(REGISTERS* regs) {
+    int fd = (int) regs->ebx;
+    uint32_t request = regs->ecx;
+    void* arg = (void*) regs->edx;
+
+    proc_fd_t* entry = fd_from_index(fd);
+    if (!entry || !entry->node) {
+        regs->eax = -1;
+        return;
+    }
+
+    regs->eax = vfs_ioctl(entry->node, request, arg);
 }
 
 static void syscall_readdir(REGISTERS* regs) {
@@ -404,6 +435,16 @@ static void syscall_shm_map(REGISTERS* regs) {
 static void syscall_shm_close(REGISTERS* regs) {
     uint32_t id = (uint32_t) regs->ebx;
     regs->eax = shm_close(id);
+}
+
+static void syscall_set_kbd_mode(REGISTERS* regs) {
+    uint32_t mode = (uint32_t) regs->ebx;
+    if (mode > 1) {
+        regs->eax = -1;
+        return;
+    }
+    keyboard_set_tty_input(mode == 0);
+    regs->eax = 0;
 }
 
 static void syscall_waitpid(REGISTERS* regs) {

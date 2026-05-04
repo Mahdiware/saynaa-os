@@ -27,3 +27,7 @@ static inline int sys_write(int fd, const void* buf, uint32_t size) {
 static inline int sys_seek(int fd, int32_t offset, int whence) {
     return (int) syscall3(SYS_SEEK, (uint32_t) fd, (uint32_t) offset, (uint32_t) whence);
 }
+
+static inline int sys_ioctl(int fd, uint32_t request, void* arg) {
+    return (int) syscall3(SYS_IOCTL, (uint32_t) fd, request, (uint32_t) arg);
+}

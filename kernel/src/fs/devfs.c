@@ -5,6 +5,7 @@
 #include "libc/string.h"
 
 static vfs_node_t g_root;
+static vfs_node_t* g_pts_root = NULL;
 static bool g_inited = false;
 
 static int dev_root_readdir(vfs_node_t* node, uint32_t index, vfs_dirent_t* dirent);
@@ -30,18 +31,44 @@ static int dev_root_readdir(vfs_node_t* node, uint32_t index, vfs_dirent_t* dire
     if (!dirent) {
         return -1;
     }
-    device_t* dev = device_by_index(index);
-    if (!dev) {
-        return -1;
+    uint32_t visible_index = 0;
+
+    if (g_pts_root) {
+        if (index == 0) {
+            strncpy(dirent->name, "pts", sizeof(dirent->name) - 1);
+            dirent->name[sizeof(dirent->name) - 1] = '\0';
+            dirent->inode = 1;
+            return 0;
+        }
+        visible_index = 1;
     }
-    strncpy(dirent->name, dev->name, sizeof(dirent->name) - 1);
-    dirent->name[sizeof(dirent->name) - 1] = '\0';
-    dirent->inode = index + 1; // arbitrary non-zero inode
-    return 0;
+
+    uint32_t dev_index = 0;
+    while (true) {
+        device_t* dev = device_by_index(dev_index++);
+        if (!dev) {
+            break;
+        }
+        if (dev->flags & DEVICE_FLAG_HIDDEN) {
+            continue;
+        }
+        if (visible_index == index) {
+            strncpy(dirent->name, dev->name, sizeof(dirent->name) - 1);
+            dirent->name[sizeof(dirent->name) - 1] = '\0';
+            dirent->inode = visible_index + 1;
+            return 0;
+        }
+        visible_index++;
+    }
+
+    return -1;
 }
 
 static vfs_node_t* dev_root_finddir(vfs_node_t* node, const char* name) {
     unused(node);
+    if (g_pts_root && name && strcmp(name, "pts") == 0) {
+        return g_pts_root;
+    }
     device_t* dev = device_lookup(name);
     return device_get_vfs_node(dev);
 }
@@ -51,6 +78,10 @@ vfs_node_t* devfs_get_root(void) {
         devfs_init_nodes();
     }
     return &g_root;
+}
+
+void devfs_register_pts_root(vfs_node_t* node) {
+    g_pts_root = node;
 }
 
 static vfs_node_t* devfs_mount_internal(void* image, size_t size) {

@@ -27,6 +27,8 @@
 #define SYS_OPEN 23
 #define SYS_CLOSE 24
 #define SYS_SEEK 25
+#define SYS_IOCTL 26
+#define SYS_SET_KBD_MODE 27
 
 // Shared flags and structs
 #define O_RDONLY (1u << 0)

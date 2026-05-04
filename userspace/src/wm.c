@@ -537,6 +537,8 @@ int main(void) {
         return 1;
     }
 
+    (void) syscall1(SYS_SET_KBD_MODE, 1);
+
     memset(g_wins, 0, sizeof(g_wins));
     g_mx = (int32_t) g_screen_w / 2;
     g_my = (int32_t) g_screen_h / 2;

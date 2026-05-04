@@ -92,6 +92,13 @@ ssize_t vfs_write(vfs_node_t* node, uint32_t offset, uint32_t size, const uint8_
     return node->ops.write(node, offset, size, buffer);
 }
 
+int vfs_ioctl(vfs_node_t* node, uint32_t request, void* arg) {
+    if (!node || !node->ops.ioctl) {
+        return -1;
+    }
+    return node->ops.ioctl(node, request, arg);
+}
+
 ssize_t vfs_pread(const char* path, uint32_t offset, uint32_t size, uint8_t* buffer) {
     vfs_node_t* node = vfs_lookup(path);
     if (!node) {

@@ -101,6 +101,9 @@
 
 void init_keyboard();
 
+// Enable or disable feeding characters into the tty input queue.
+void keyboard_set_tty_input(bool enabled);
+
 // a blocking character read
 char kb_getchar();
 
